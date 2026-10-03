@@ -1,0 +1,50 @@
+name: Box64 Android (bionic)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'fix/**' ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get -y install git cmake make python3
+          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -qq android-ndk-r26b-linux.zip
+          echo "BOX64_COMPILER=$PWD/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_C_COMPILER=${{ env.BOX64_COMPILER }} -DANDROID=1 -DARM_DYNAREC=1 -DBAD_SIGNAL=1 \
+                   -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
+          make -j$(nproc) VERBOSE=1
+          ls -la box64
+          file box64 || true
+
+      - name: Package (Bannerlator Box64 wcp)
+        run: |
+          set -e
+          VER=$(grep -m1 "BOX64_MAJOR" src/include/box64version.h | tr -s ' ' | cut -d' ' -f3 || echo 0)
+          SHA=$(git rev-parse --short HEAD)
+          NAME="Box64-0.4.5-gst-nogtk-$SHA-Bionic"
+          mkdir -p pkg && cp build/box64 pkg/box64
+          cat > pkg/profile.json <<EOF
+          {"type": "Box64", "versionName": "$NAME", "versionCode": 0, "description": "Box64 $SHA, GStreamer wrapper without the GTK3 requirement", "files": [{"source": "box64", "target": "\${bindir}/box64"}]}
+          EOF
+          (cd pkg && tar -I 'zstd -T0 -19' -cf ../$NAME.wcp profile.json box64)
+          sha256sum $NAME.wcp
+          echo "WCP=$NAME.wcp" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: box64-android-bionic
+          path: |
+            build/box64
+            *.wcp
