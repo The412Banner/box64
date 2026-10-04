@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "env.h"
+#include "debug.h"
+#include "rbtree.h"
 #include "sysinfo.h"
 #include "box64context.h"
 #include "custommem.h"
@@ -42,7 +44,13 @@ NTSTATUS WINAPI ProcessInit(void)
     }
 
     InitializeSystemInfo();
-    DetectHostCpuFeatures();
+    if (!DetectHostCpuFeatures()) {
+        printf_log(LOG_INFO, "box64ec: minimum CPU requirements not met, disabling DynaRec\n");
+        SET_BOX64ENV(dynarec, 0);
+    }
+#ifdef DYNAREC
+    Box64EC_Context.db_sizes = rbtree_init("db_sizes");
+#endif
 
     NTSTATUS status = Box64EC_InitSyscalls();
     if (status)

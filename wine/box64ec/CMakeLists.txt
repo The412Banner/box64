@@ -12,11 +12,60 @@ endif()
 
 add_library(box64ec_interpreter STATIC ${INTERPRETER})
 
+# Dynarec: same source set WowBox64 links, enabled when the parent passes the pass/asm lists.
+string(REPLACE "," ";" DYNAREC_ASM "${DYNAREC_ASM_STR}")
+string(REPLACE "," ";" DYNAREC_PASS "${DYNAREC_PASS_STR}")
+if(DYNAREC_PASS)
+    set(BOX64EC_DYNAREC ON)
+    set_source_files_properties(${DYNAREC_ASM} PROPERTIES COMPILE_OPTIONS "-mcpu=cortex-a76")
+    foreach(STEP_VALUE RANGE 3)
+        add_library(box64ec_dynarec_pass${STEP_VALUE} OBJECT ${DYNAREC_PASS})
+        target_compile_definitions(box64ec_dynarec_pass${STEP_VALUE} PRIVATE STEP=${STEP_VALUE})
+    endforeach()
+    add_library(box64ec_test_interpreter OBJECT ${INTERPRETER})
+    set_target_properties(box64ec_test_interpreter PROPERTIES COMPILE_DEFINITIONS "TEST_INTERPRETER")
+    set(BOX64EC_DYNAREC_SRC
+        box64ec_dynarec.c
+        ${DYNAREC_ASM}
+        "${BOX64_ROOT}/src/build_info.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/arm64_immenc.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/arm64_printer.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_arch.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_functions.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_jmpnext.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_consts.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/updateflags_arm64.c"
+        "${BOX64_ROOT}/src/dynarec/dynablock.c"
+        "${BOX64_ROOT}/src/dynarec/dynarec_native_functions.c"
+        "${BOX64_ROOT}/src/dynarec/dynarec_native.c"
+        "${BOX64_ROOT}/src/dynarec/dynarec.c"
+        "${BOX64_ROOT}/src/dynarec/dynacache_reloc.c"
+        "${BOX64_ROOT}/src/emu/x64test.c"
+        "${BOX64_ROOT}/src/emu/x64trace.c"
+        "${BOX64_ROOT}/src/os/hostext_common.c"
+        "${BOX64_ROOT}/src/os/symbolfuncs_wine.c"
+        "${BOX64_ROOT}/src/os/perfmap.c"
+        "${BOX64_ROOT}/src/tools/dynacache.c"
+        $<TARGET_OBJECTS:box64ec_dynarec_pass0>
+        $<TARGET_OBJECTS:box64ec_dynarec_pass1>
+        $<TARGET_OBJECTS:box64ec_dynarec_pass2>
+        $<TARGET_OBJECTS:box64ec_dynarec_pass3>
+        $<TARGET_OBJECTS:box64ec_test_interpreter>
+    )
+    set(BOX64EC_DYNAREC_TARGETS box64ec_dynarec_pass0 box64ec_dynarec_pass1
+        box64ec_dynarec_pass2 box64ec_dynarec_pass3 box64ec_test_interpreter)
+else()
+    set(BOX64EC_DYNAREC OFF)
+    set(BOX64EC_DYNAREC_SRC "")
+    set(BOX64EC_DYNAREC_TARGETS "")
+endif()
+
 add_library(box64ec SHARED
     box64ec.c box64ec_init.c box64ec_cpu.c box64ec_thread.c
     box64ec_context.c box64ec_runtime.c box64ec_transition.c
     box64ec_dispatch.c box64ec_syscalls.c box64ec_memory.c
     box64ec_exception.c module.S box64ec.def
+    ${BOX64EC_DYNAREC_SRC}
     "${BOX64_ROOT}/wine/common/crt.c"
     "${BOX64_ROOT}/wine/common/wrt.c"
     "${BOX64_ROOT}/src/custommem.c"
@@ -51,7 +100,7 @@ add_library(box64ec SHARED
     "${BOX64_ROOT}/external/musl/sqrt_data.c"
     "${BOX64_ROOT}/external/musl/sqrtf.c"
 )
-foreach(target box64ec box64ec_interpreter)
+foreach(target box64ec box64ec_interpreter ${BOX64EC_DYNAREC_TARGETS})
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${BOX64_ROOT}/src/include"
@@ -60,6 +109,9 @@ foreach(target box64ec box64ec_interpreter)
         "${BOX64_ROOT}/external/musl"
         "${BOX64_ROOT}/external/musl/internal")
     target_compile_definitions(${target} PRIVATE ARM64 BOX64EC)
+    if(BOX64EC_DYNAREC)
+        target_compile_definitions(${target} PRIVATE DYNAREC)
+    endif()
 
     # ARM64EC contexts cannot preserve scalable vector state.
     target_compile_options(${target} PRIVATE
@@ -68,6 +120,18 @@ foreach(target box64ec box64ec_interpreter)
         "SHELL:-Xclang -target-feature -Xclang -sve")
 endforeach()
 target_link_libraries(box64ec PRIVATE box64ec_interpreter)
+
+if(BOX64EC_DYNAREC)
+    set(DYNACACHE_HASH_HEADER "${BOX64_ROOT}/src/dynacache_hashes.h")
+    add_custom_target(generate_dynacache_hashes_ec
+        COMMAND "${Python3_EXECUTABLE}" "${BOX64_ROOT}/tools/gen_dynacache_hashes.py"
+            --root "${BOX64_ROOT}"
+            --output "${DYNACACHE_HASH_HEADER}"
+        BYPRODUCTS "${DYNACACHE_HASH_HEADER}"
+        VERBATIM
+    )
+    add_dependencies(box64ec generate_dynacache_hashes_ec)
+endif()
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ntdll.a"

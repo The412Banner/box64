@@ -24,6 +24,11 @@
 #include "custommem.h"
 #include "x64test.h"
 #endif
+#ifdef BOX64EC
+/* ARM64EC code (Wine DLLs) must never be translated: hand it back to Wine. */
+int Box64EC_IsEcCode(uintptr_t address);
+void Box64EC_RequestExitToNative(x64emu_t* emu, uintptr_t address);
+#endif
 #ifdef HAVE_TRACE
 #include "elfloader.h"
 #endif
@@ -34,6 +39,14 @@ void* LinkNext(x64emu_t* emu, uintptr_t addr, void* x2, uintptr_t* x3)
 {
     int is32bits = (R_CS == 0x23);
     if(!running32bits && is32bits) running32bits=1;
+    #ifdef BOX64EC
+    if(Box64EC_IsEcCode(addr)) {
+        // jump/call/ret into native ARM64EC code: leave the dynarec, Wine takes over
+        Box64EC_RequestExitToNative(emu, addr);
+        *x3 = addr;
+        return native_epilog;
+    }
+    #endif
     #ifndef HAVE_ALTJUMP
     // inefficient way to handle alternate without ALTJUMP
     uintptr_t new_addr = (uintptr_t)getAlternate((void*)addr);
@@ -242,6 +255,12 @@ void EmuRun(x64emu_t* emu, int use_dynarec, int no_alt)
         if(!BOX64ENV(dynarec) || !use_dynarec)
             Run(emu, 0);
         else {
+            #ifdef BOX64EC
+            if(Box64EC_IsEcCode(R_RIP)) {
+                Box64EC_RequestExitToNative(emu, R_RIP);
+                break;
+            }
+            #endif
             int newis32bits = (emu->segs[_CS]==0x23);
             if(newis32bits!=is32bits) {
                 is32bits = newis32bits;

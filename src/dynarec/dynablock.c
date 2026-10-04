@@ -485,8 +485,17 @@ void FlushZombieDynablocks(void)
     my_context->db_zombie_count = 0;
 }
 
+#ifdef BOX64EC
+int Box64EC_IsEcCode(uintptr_t address);
+#endif
+
 dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
 {
+    #ifdef BOX64EC
+    // never build a block out of native ARM64EC code
+    if(Box64EC_IsEcCode(addr))
+        return NULL;
+    #endif
     int is_inhotpage = isInHotPage(addr);
     if(is_inhotpage && !BOX64ENV(dynarec_dirty))
         return NULL;
