@@ -105,7 +105,12 @@ static void run_emu(x64emu_t* emu)
     }
 
     Box64EC_ApplyLiveMxcsr(emu);
-    Run(emu, 0);
+#ifdef DYNAREC
+    if (BOX64ENV(dynarec))
+        DynaRun(emu);
+    else
+#endif
+        Run(emu, 0);
 }
 
 void Box64EC_ResetAbandonedEmuRun(box64ec_thr_t* state, x64emu_t* emu)
