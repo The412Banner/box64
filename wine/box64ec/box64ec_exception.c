@@ -54,8 +54,8 @@ static int dynarec_fault_to_emu(ARM64_NT_CONTEXT* arm_context, x64emu_t* emu)
     rip = getX64Address(db, (uintptr_t)arm_context->Pc);
     if (rip)
         R_RIP = rip;
-    printf_log(LOG_DEBUG, "box64ec: fault in dynarec block %p (x64 %p), pc=%p -> rip=%p\n",
-               db, db->x64_addr, (void*)(uintptr_t)arm_context->Pc, (void*)(uintptr_t)R_RIP);
+    printf_log(LOG_DEBUG, "box64ec: fault in dynarec block %p, pc=%p -> rip=%p\n",
+               db, (void*)(uintptr_t)arm_context->Pc, (void*)(uintptr_t)R_RIP);
     return 1;
 }
 #endif
